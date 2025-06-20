@@ -1,0 +1,256 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * LytePHP CLI Tool
+ * 
+ * Usage:
+ *   php lytephp start [--docker] [--simple]
+ *   php lytephp stop
+ *   php lytephp status
+ *   php lytephp logs
+ *   php lytephp new <project-name>
+ */
+
+if (php_sapi_name() !== 'cli') {
+    die('This script can only be run from the command line.');
+}
+
+class LytePHPCli
+{
+    private string $projectRoot;
+
+    public function __construct()
+    {
+        $this->projectRoot = getcwd();
+    }
+
+    public function run(array $args): void
+    {
+        $command = $args[1] ?? 'help';
+        
+        switch ($command) {
+            case 'start':
+                $this->start($args);
+                break;
+            case 'stop':
+                $this->stop();
+                break;
+            case 'status':
+                $this->status();
+                break;
+            case 'logs':
+                $this->logs();
+                break;
+            case 'new':
+                $this->newProject($args);
+                break;
+            case 'help':
+            default:
+                $this->help();
+                break;
+        }
+    }
+
+    private function start(array $args): void
+    {
+        $useDocker = in_array('--docker', $args);
+        $useSimple = in_array('--simple', $args);
+
+        echo "🚀 Starting LytePHP...\n";
+
+        if ($useDocker) {
+            $this->startDocker();
+        } elseif ($useSimple) {
+            $this->startSimple();
+        } else {
+            // Auto-detect with interactive choice
+            if ($this->isDockerAvailable()) {
+                $this->interactiveChoice();
+            } else {
+                echo "📦 Docker not available, starting with simple PHP server...\n";
+                $this->startSimple();
+            }
+        }
+    }
+
+    private function interactiveChoice(): void
+    {
+        echo "\n🐳 Docker detected! Choose your startup method:\n";
+        echo "1. Simple Mode (PHP server only)\n";
+        echo "2. Docker Mode (Full stack with MySQL, Redis, etc.)\n";
+        echo "\nEnter your choice (1 or 2): ";
+        
+        $handle = fopen("php://stdin", "r");
+        $choice = trim(fgets($handle));
+        fclose($handle);
+        
+        echo "\n";
+        
+        switch ($choice) {
+            case '1':
+                echo "📦 Starting with simple PHP server...\n";
+                $this->startSimple();
+                break;
+            case '2':
+                echo "🐳 Starting with Docker...\n";
+                $this->startDocker();
+                break;
+            default:
+                echo "❌ Invalid choice. Please run again and select 1 or 2.\n";
+                exit(1);
+        }
+    }
+
+    private function startDocker(): void
+    {
+        if (!$this->isDockerAvailable()) {
+            echo "❌ Docker is not available. Use --simple flag or install Docker.\n";
+            exit(1);
+        }
+
+        $script = $this->projectRoot . '/scripts/start-docker.sh';
+        if (file_exists($script)) {
+            system($script);
+        } else {
+            echo "🔨 Starting with docker-compose...\n";
+            system('docker-compose up -d');
+            echo "✅ LytePHP is running!\n";
+            echo "🌐 Application: http://localhost:8000\n";
+            echo "📚 Documentation: http://localhost:8000/docs\n";
+        }
+    }
+
+    private function startSimple(): void
+    {
+        $script = $this->projectRoot . '/scripts/start-simple.sh';
+        if (file_exists($script)) {
+            system($script);
+        } else {
+            echo "📦 Installing dependencies...\n";
+            system('composer install');
+            
+            if (!file_exists('.env')) {
+                echo "⚙️  Creating .env file...\n";
+                copy('env.example', '.env');
+            }
+            
+            echo "🌐 Starting PHP server...\n";
+            system('php -S localhost:8000 -t public');
+        }
+    }
+
+    private function stop(): void
+    {
+        echo "🛑 Stopping LytePHP...\n";
+        
+        if ($this->isDockerRunning()) {
+            system('docker-compose down');
+            echo "✅ Docker services stopped.\n";
+        } else {
+            echo "ℹ️  No Docker services running.\n";
+        }
+    }
+
+    private function status(): void
+    {
+        echo "📊 LytePHP Status:\n";
+        
+        // Check if Docker is running
+        if ($this->isDockerRunning()) {
+            echo "🐳 Docker: Running\n";
+            system('docker-compose ps');
+        } else {
+            echo "🐳 Docker: Not running\n";
+        }
+        
+        // Check if PHP server is running
+        if ($this->isPhpServerRunning()) {
+            echo "📦 PHP Server: Running on http://localhost:8000\n";
+        } else {
+            echo "📦 PHP Server: Not running\n";
+        }
+    }
+
+    private function logs(): void
+    {
+        if ($this->isDockerRunning()) {
+            system('docker-compose logs -f app');
+        } else {
+            echo "ℹ️  No Docker services running. Use 'docker-compose logs' if you have Docker.\n";
+        }
+    }
+
+    private function newProject(array $args): void
+    {
+        $projectName = $args[2] ?? null;
+        
+        if (!$projectName) {
+            echo "❌ Please provide a project name: php lytephp new <project-name>\n";
+            exit(1);
+        }
+
+        echo "🆕 Creating new LytePHP project: {$projectName}\n";
+        
+        // This would typically clone from a template repository
+        echo "📋 To create a new project, run:\n";
+        echo "   composer create-project lytephp/lytephp {$projectName}\n";
+        echo "   cd {$projectName}\n";
+        echo "   php lytephp start\n";
+    }
+
+    private function help(): void
+    {
+        echo "LytePHP CLI Tool\n";
+        echo "================\n\n";
+        echo "Usage:\n";
+        echo "  php lytephp start [--docker] [--simple]  Start LytePHP\n";
+        echo "  php lytephp stop                        Stop LytePHP\n";
+        echo "  php lytephp status                      Show status\n";
+        echo "  php lytephp logs                        Show logs\n";
+        echo "  php lytephp new <project-name>          Create new project\n";
+        echo "  php lytephp help                        Show this help\n\n";
+        echo "Options:\n";
+        echo "  --docker    Force Docker mode\n";
+        echo "  --simple    Force simple PHP server mode\n\n";
+        echo "Examples:\n";
+        echo "  php lytephp start                       Interactive choice (if Docker available)\n";
+        echo "  php lytephp start --docker              Start with Docker\n";
+        echo "  php lytephp start --simple              Start with PHP server\n";
+        echo "  php lytephp new my-api                  Create new project\n";
+    }
+
+    private function isDockerAvailable(): bool
+    {
+        return command_exists('docker') && command_exists('docker-compose');
+    }
+
+    private function isDockerRunning(): bool
+    {
+        if (!$this->isDockerAvailable()) {
+            return false;
+        }
+        
+        $output = shell_exec('docker-compose ps 2>/dev/null');
+        return str_contains($output ?? '', 'Up');
+    }
+
+    private function isPhpServerRunning(): bool
+    {
+        $context = stream_context_create(['http' => ['timeout' => 1]]);
+        $result = @file_get_contents('http://localhost:8000/health', false, $context);
+        return $result !== false;
+    }
+}
+
+function command_exists(string $command): bool
+{
+    $output = shell_exec("which {$command} 2>/dev/null");
+    return !empty($output);
+}
+
+// Run the CLI
+$cli = new LytePHPCli();
+$cli->run($argv); 
